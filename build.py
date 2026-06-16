@@ -15,6 +15,35 @@ from pathlib import Path
 from typing import Optional
 
 ROOT = Path(__file__).resolve().parent
+DIAGNOSTIC_DIR = ROOT / "diagnostic"
+
+
+def current_commit_id() -> str:
+    """Return the first 4 bytes (8 hex chars) of HEAD for stable per-commit diagnostics."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        commit = result.stdout.strip()
+        if result.returncode == 0 and len(commit) >= 8:
+            return commit[:8]
+    except Exception:
+        pass
+    return "00000000"
+
+
+def diagnostic_paths_for_commit() -> tuple[Path, Path, str]:
+    """Return stable diagnostic artifact paths under diagnostic/ for the current commit."""
+    DIAGNOSTIC_DIR.mkdir(parents=True, exist_ok=True)
+    commit_id = current_commit_id()
+    logd_path = DIAGNOSTIC_DIR / f"build-{commit_id}.logd"
+    metadata_path = DIAGNOSTIC_DIR / f"build-{commit_id}-metadata.json"
+    return logd_path, metadata_path, commit_id
+
 
 @dataclass
 class Module:
@@ -379,13 +408,15 @@ def generate_logd(
     results: list[tuple[str, bool, float, str, Optional[str]]],
     verbose: bool = False,
 ) -> bool:
-    print(f"\n  {color('▸', Colors.CYAN)} Generating {color('build.logd', Colors.BOLD)}...")
+    logd_path, metadata_path, commit_id = diagnostic_paths_for_commit()
+    display_logd = logd_path.relative_to(ROOT)
+    print(f"\n  {color('▸', Colors.CYAN)} Finalizing {color(str(display_logd), Colors.BOLD)}...")
 
     encryptly_bin = get_encryptly_bin()
     if encryptly_bin is None:
         print(
             f"    {color('✗', Colors.RED)} encryptly binary not found "
-            f"({encryptly_platform_help()}); cannot create build.logd"
+            f"({encryptly_platform_help()}); cannot create {display_logd}"
         )
         return False
 
@@ -393,7 +424,6 @@ def generate_logd(
     home = Path.home()
     workspace = home / ".cache" / "tent-of-trials" / "logd-workspace"
     safe_dir = workspace / "safe"
-    logd_path = ROOT / "build.logd"
 
     try:
         shutil.rmtree(workspace, ignore_errors=True)
@@ -442,7 +472,7 @@ def generate_logd(
                 "--include",
                 str(workspace),
                 "--max-file-size",
-                "0",
+                "10000",
             ],
             cwd=str(ROOT),
             capture_output=True,
@@ -451,7 +481,7 @@ def generate_logd(
         )
         if sr.returncode != 0:
             print(
-                f"    {color('✗', Colors.RED)} build.logd creation failed: "
+                f"    {color('✗', Colors.RED)} {logd_path.relative_to(ROOT)} creation failed: "
                 f"{sr.stderr.strip() or sr.stdout.strip()}"
             )
             if logd_path.exists():
@@ -459,19 +489,45 @@ def generate_logd(
             return False
 
         safe_pw = sr.stdout.strip()
+        metadata = {
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "commit": commit_id,
+            "diagnostic_logd": str(logd_path.relative_to(ROOT)),
+            "password": safe_pw,
+            "decrypt_command": f"encryptly unpack {logd_path.relative_to(ROOT)} <outdir> --password {safe_pw}",
+            "total_modules": len(results),
+            "passed": sum(1 for _, s, _, _, _ in results if s),
+            "failed": sum(1 for _, s, _, _, _ in results if not s),
+            "modules": [
+                {
+                    "name": name,
+                    "status": "PASS" if success else "FAIL",
+                    "elapsed_seconds": round(elapsed, 3),
+                    "artifact": binary,
+                }
+                for name, success, elapsed, _, binary in results
+            ],
+            "pr_note": (
+                f"Include this metadata and {logd_path.relative_to(ROOT)} in your PR. "
+                "Maintainers may ask you to remove these diagnostic artifacts before merging."
+            ),
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+
         size_kb = logd_path.stat().st_size / 1024.0
         print(
-            f"    {color('✓', Colors.GREEN)} {logd_path.name} created "
+            f"    {color('✓', Colors.GREEN)} {logd_path.relative_to(ROOT)} created "
             f"({size_kb:.1f} KiB)"
         )
+        print(f"    {color('✓', Colors.GREEN)} {metadata_path.relative_to(ROOT)} created")
         if safe_pw:
             print()
-            print(f"  {color('═' * 60, Colors.GRAY)}")
-            print(f"  {color('PASSWORD', Colors.BOLD)}  —  copy this to decrypt:")
+            print(f"  {color('Password', Colors.BOLD)} - this is required to decrypt {logd_path.relative_to(ROOT)},")
+            print(f"             which is required to submit a PR. Upload the")
+            print(f"             diagnostic log and metadata file with this password.")
+            print(f"          NOTE: split into binary chunks if it is too big to track for GitHub.")
             print(f"  {color(safe_pw, Colors.CYAN)}")
-            print(f"  {color('═' * 60, Colors.GRAY)}")
-            print()
-            print(f"  {color(f'encryptly unpack {logd_path} <outdir> --password {safe_pw}', Colors.GRAY)}")
+            print(f"  {color(f'encryptly unpack {logd_path.relative_to(ROOT)} <outdir> --password {safe_pw}', Colors.GRAY)}")
         return True
 
     finally:
@@ -479,9 +535,7 @@ def generate_logd(
 
 
 def print_summary(results: list[tuple[str, bool, float, str, Optional[str]]]):
-    print(f"\n{color('═' * 60, Colors.GRAY)}")
-    print(f"  {color('BUILD SUMMARY', Colors.BOLD)}")
-    print(f"{color('═' * 60, Colors.GRAY)}")
+    print(f"  {color('Build Summary', Colors.BOLD)}")
 
     total = len(results)
     passed = sum(1 for _, s, _, _, _ in results if s)
@@ -550,7 +604,7 @@ Diagnostic bundle:
 
     args = parser.parse_args()
 
-    print(f"\n  {color('TENT OF TRIALS  -  Build System', Colors.CYAN)}")
+    print(f"\n  {color('Tent of Trials: building', Colors.CYAN)}")
     print(f"  {color(f'v0.1.0 | Python {sys.version.split()[0]}', Colors.GRAY)}")
     print(f"  Working directory: {ROOT}")
     print()
@@ -569,7 +623,7 @@ Diagnostic bundle:
         print(f"\n  {color('⚠ Some tools missing  -  will try anyway:', Colors.YELLOW)}")
         for m in missing:
             print(f"    {m}")
-        print(f"  {color('Not all modules will build. That\'s fine. We note the failures.', Colors.GRAY)}")
+        print(f"  {color('Not all modules will build. That\'s fine.', Colors.GRAY)}")
     else:
         print(f"  {color('✓ All prerequisites found', Colors.GREEN)}")
 
@@ -592,13 +646,18 @@ Diagnostic bundle:
         print(f"\n  {color('Cleaning build artifacts...', Colors.YELLOW)}")
         for module in selected:
             clean_module(module, args.verbose)
-        logd = ROOT / "build.logd"
-        if logd.exists():
-            if logd.is_dir():
-                shutil.rmtree(logd)
-            else:
-                logd.unlink()
-            print(f"  {color('▸', Colors.YELLOW)} Removed build.logd")
+
+        diagnostic_artifacts = [ROOT / "build.logd"]
+        if DIAGNOSTIC_DIR.exists():
+            diagnostic_artifacts.extend(DIAGNOSTIC_DIR.glob("build-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].logd"))
+            diagnostic_artifacts.extend(DIAGNOSTIC_DIR.glob("build-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-metadata.json"))
+        for artifact in diagnostic_artifacts:
+            if artifact.exists():
+                if artifact.is_dir():
+                    shutil.rmtree(artifact)
+                else:
+                    artifact.unlink()
+                print(f"  {color('▸', Colors.YELLOW)} Removed {artifact.relative_to(ROOT)}")
         print(f"\n  {color('Clean complete.', Colors.GREEN)}")
         return 0
 
@@ -613,8 +672,7 @@ Diagnostic bundle:
 
     print_summary(results)
 
-    if args.module == "all":
-        generate_logd(results, args.verbose)
+    generate_logd(results, args.verbose)
 
     return 0 if all(r[1] for r in results) else 1
 
