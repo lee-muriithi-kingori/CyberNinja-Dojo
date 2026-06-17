@@ -1,4 +1,5 @@
-﻿# TODO Audit Report
+[//]: # (LEGACY: this file contains legacy references)
+# TODO Audit Report
 
 Generated: 2026-06-17 09:40:52
 Total TODOs: 322

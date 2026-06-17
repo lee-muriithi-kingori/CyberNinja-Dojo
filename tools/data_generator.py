@@ -1,3 +1,4 @@
+# LEGACY: this file contains legacy references
 #!/usr/bin/env python3
 """
 Legacy test data generator for development and testing environments.

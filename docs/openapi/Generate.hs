@@ -1,3 +1,4 @@
+-- LEGACY: this file contains legacy references
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
