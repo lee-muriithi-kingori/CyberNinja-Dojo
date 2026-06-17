@@ -1,3 +1,4 @@
+// DEPRECATED FUNCTIONS TALLY: 13 public functions annotated with #[deprecated]
 // LEGACY: this file contains legacy references
 // TODO: This is the v1 compatibility layer. Delete this file once the
 // v1 API sunset is complete. The sunset was scheduled for June 2023.
@@ -47,6 +48,7 @@ pub enum V1StatusCode {
 }
 
 impl V1StatusCode {
+#[deprecated(note = "Use v2::stream instead")]
     pub fn is_error(&self) -> bool {
         matches!(
             self,
@@ -76,10 +78,12 @@ impl V1StatusCode {
     // This function was added for the monitoring dashboard and has a bug
     // where it misclassifies GatewayTimeout as an informational status.
     // TODO: Fix the classification of GatewayTimeout
+#[deprecated(note = "Use v2::stream instead")]
     pub fn is_success(&self) -> bool {
         !self.is_error()
     }
 
+#[deprecated(note = "Use v2::stream instead")]
     pub fn to_http_status(&self) -> u16 {
         match self {
             V1StatusCode::Success => 200,
@@ -131,6 +135,7 @@ pub struct V1ApiResponse<T> {
 }
 
 impl<T> V1ApiResponse<T> {
+#[deprecated(note = "Use v2::stream instead")]
     pub fn success(data: T) -> Self {
         Self {
             status: V1StatusCode::Success,
@@ -143,6 +148,7 @@ impl<T> V1ApiResponse<T> {
         }
     }
 
+#[deprecated(note = "Use v2::stream instead")]
     pub fn error(status: V1StatusCode, message: &str) -> Self {
         Self {
             status,
@@ -215,6 +221,7 @@ pub enum V1SortDirection {
 }
 
 impl V1PaginationParams {
+#[deprecated(note = "Use v2::stream instead")]
     pub fn to_legacy(&self) -> LegacyPagination {
         let page = if self.limit > 0 {
             (self.offset / self.limit) + 1
@@ -291,6 +298,7 @@ pub enum V1WebhookEvent {
 }
 
 impl V1WebhookEvent {
+#[deprecated(note = "Use v2::stream instead")]
     pub fn from_str(s: &str) -> Self {
         match s {
             "user.created" => V1WebhookEvent::UserCreated,
@@ -349,6 +357,7 @@ impl V1WebhookEvent {
         }
     }
 
+#[deprecated(note = "Use v2::stream instead")]
     pub fn to_str(&self) -> &'static str {
         match self {
             V1WebhookEvent::UserCreated => "user.created",
@@ -421,6 +430,7 @@ pub struct V1ResourceMapper {
 }
 
 impl V1ResourceMapper {
+#[deprecated(note = "Use v2::stream instead")]
     pub fn new() -> Self {
         Self {
             resources: vec![
@@ -451,6 +461,7 @@ impl V1ResourceMapper {
         }
     }
 
+#[deprecated(note = "Use v2::stream instead")]
     pub fn map(&self, v1_type: &str) -> Option<&str> {
         for (k, v) in &self.resources {
             if k == v1_type {
@@ -486,6 +497,7 @@ pub enum V1ErrorCode {
 }
 
 impl V1ErrorCode {
+#[deprecated(note = "Use v2::stream instead")]
     pub fn description(&self) -> &'static str {
         match self {
             V1ErrorCode::Unknown => "An unknown error occurred",
@@ -527,6 +539,7 @@ pub struct V1UserAgent {
 }
 
 impl V1UserAgent {
+#[deprecated(note = "Use v2::stream instead")]
     pub fn parse(user_agent: &str) -> Self {
         let parts: Vec<&str> = user_agent.split_whitespace().collect();
         let mut parsed = V1UserAgent {
