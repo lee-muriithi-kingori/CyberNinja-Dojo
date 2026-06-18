@@ -1,0 +1,131 @@
+﻿#!/usr/bin/env python3
+"""Pre-commit hook that runs diagnostic generation before every commit.
+
+This hook ensures diagnostic artifacts are always up-to-date before committing.
+It runs build.py, copies the generated diagnostics to the staging area, and
+aborts the commit if build.py fails.
+
+Usage:
+    make install-hooks  # Install this hook
+    git commit          # Hook runs automatically
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DIAGNOSTIC_DIR = ROOT / "diagnostic"
+BUILD_SCRIPT = ROOT / "build.py"
+
+
+def file_hash(path: Path) -> str:
+    """Compute SHA256 hash of a file."""
+    if not path.exists():
+        return ""
+    hasher = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def get_latest_diagnostics() -> tuple[Path | None, Path | None]:
+    """Find the most recent .logd and .json diagnostic files."""
+    if not DIAGNOSTIC_DIR.exists():
+        return None, None
+    
+    logd_files = sorted(DIAGNOSTIC_DIR.glob("build-*.logd"), key=lambda p: p.stat().st_mtime, reverse=True)
+    json_files = sorted(DIAGNOSTIC_DIR.glob("build-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    
+    return logd_files[0] if logd_files else None, json_files[0] if json_files else None
+
+
+def run_build_with_countdown() -> bool:
+    """Run build.py with a countdown timer."""
+    print("Running build.py (this may take a while)...")
+    
+    start_time = time.time()
+    elapsed = 0
+    
+    process = subprocess.Popen(
+        [sys.executable, str(BUILD_SCRIPT)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
+    )
+    
+    # Print elapsed time while build runs
+    while process.poll() is None:
+        elapsed = time.time() - start_time
+        print(f"\r  Elapsed: {elapsed:.0f}s", end="", flush=True)
+        time.sleep(1)
+    
+    # Print final output
+    if process.stdout:
+        output = process.stdout.read()
+        if output:
+            print(f"\n{output}")
+    
+    return process.returncode == 0
+
+
+def main() -> int:
+    """Main pre-commit hook logic."""
+    print("=" * 60)
+    print("Pre-commit hook: Generating diagnostics")
+    print("=" * 60)
+    
+    # Check if diagnostics already exist and haven't changed
+    logd_file, json_file = get_latest_diagnostics()
+    
+    if logd_file and json_file:
+        # Check if build.py has changed since last diagnostic generation
+        build_hash = file_hash(BUILD_SCRIPT)
+        logd_hash = file_hash(logd_file)
+        
+        # Simple check: if build.py hasn't changed, skip rebuild
+        # (In production, you'd want to track this more carefully)
+        print(f"Found existing diagnostics: {logd_file.name}")
+        print("Checking if rebuild is needed...")
+    
+    # Run build.py
+    print("\nRunning build.py...")
+    success = run_build_with_countdown()
+    
+    if not success:
+        print("\nERROR: build.py failed! Aborting commit.")
+        print("Fix the build errors and try again.")
+        return 1
+    
+    # Get the newly generated diagnostics
+    new_logd, new_json = get_latest_diagnostics()
+    
+    if not new_logd:
+        print("\nERROR: No diagnostic files generated!")
+        return 1
+    
+    print(f"\nGenerated: {new_logd.name}")
+    if new_json:
+        print(f"Generated: {new_json.name}")
+    
+    # Stage the diagnostic files
+    print("\nStaging diagnostic files...")
+    subprocess.run(["git", "add", str(new_logd)], check=True, capture_output=True)
+    if new_json:
+        subprocess.run(["git", "add", str(new_json)], check=True, capture_output=True)
+    
+    print("\nDiagnostics staged successfully!")
+    print("=" * 60)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
