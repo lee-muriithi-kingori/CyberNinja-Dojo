@@ -14,6 +14,7 @@ OBJS = $(patsubst %.c, $(BUILDDIR)/%.o, $(SRCS))
 DEPS = $(OBJS:.o=.d)
 
 TARGET = frailbox
+TEST_LOGGER_SHUTDOWN = $(BUILDDIR)/tests/test_logger_shutdown
 
 .PHONY: all clean
 
@@ -34,8 +35,12 @@ clean:
 distclean: clean
 	rm -rf *.o *.d
 
-test: $(TARGET)
-	./$(TARGET) --sandbox-type seccomp --memory-limit 64 --verbose
+$(TEST_LOGGER_SHUTDOWN): tests/test_logger_shutdown.c $(SRCDIR)/logger.c $(INCDIR)/logger.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -I$(INCDIR) tests/test_logger_shutdown.c $(SRCDIR)/logger.c -o $@ -pthread
+
+test: $(TEST_LOGGER_SHUTDOWN)
+	./$(TEST_LOGGER_SHUTDOWN)
 
 valgrind: $(TARGET)
 	valgrind --leak-check=full --show-leak-kinds=all ./$(TARGET)

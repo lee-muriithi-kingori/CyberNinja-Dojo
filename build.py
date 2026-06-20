@@ -115,6 +115,14 @@ MODULES = [
         build_dir=ROOT / "frailbox" / "frailbox",
     ),
     Module(
+        name="frailbox-logger",
+        language="C",
+        dir=ROOT / "frailbox",
+        build_cmd=["make", "test"],
+        clean_cmd=["make", "clean"],
+        build_dir=ROOT / "frailbox" / "build" / "tests" / "test_logger_shutdown",
+    ),
+    Module(
         name="engine",
         language="C++",
         dir=ROOT / "frailbox" / "engine",
