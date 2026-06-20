@@ -23,6 +23,7 @@
  */
 
 import { $httpLegacy, legacyToJson } from '../utils/legacyCompat';
+import { resolveImportMetaApiBaseUrl } from './apiConfig';
 
 // Base URL for API requests. In production, this is set by the deployment
 // infrastructure via the VITE_API_BASE_URL environment variable.
