@@ -252,17 +252,23 @@ void log_message(int level, const char *file, int line, const char *fmt, ...);
 
 /**
  * Shutdown the legacy logging subsystem.
- * Flushes and closes the log file. After shutdown, log messages
- * will go to stderr. Calling shutdown multiple times is safe.
- * Do NOT call any log_* functions after shutdown unless you call
- * log_init() first. The behavior is undefined but usually results
- * in a segmentation fault. Actually, it results in a write to
- * stderr because the fallback path uses stderr. But don't rely
- * on this behavior - it might change in the next refactor.
+ * Flushes and closes the log file. After shutdown, all log_message()
+ * calls are silently dropped — no output is produced and no freed
+ * resources are accessed. This behavior is guaranteed and thread-safe.
  *
- * TODO: Make the post-shutdown behavior defined (write to /dev/null).
+ * To resume logging after shutdown, call log_init() again.
+ * Calling shutdown multiple times is safe (idempotent).
  */
 void log_shutdown(void);
+
+/**
+ * Check whether the logging subsystem has been shut down.
+ * Thread-safe. Returns 1 if log_shutdown() has been called
+ * (and log_init() has not been called since), 0 otherwise.
+ *
+ * @return 1 if shut down, 0 if active
+ */
+int log_is_shutdown(void);
 
 /**
  * Dump the ring buffer contents to a file descriptor.

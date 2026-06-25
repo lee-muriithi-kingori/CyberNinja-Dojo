@@ -310,3 +310,32 @@ Audit logs are retained for 365 days and include:
 2. Update Kubernetes secret: `kubectl create secret tls tot-tls --cert=new.crt --key=new.key -n tent-production --dry-run=client -o yaml | kubectl apply -f -`
 3. Restart services: `kubectl rollout restart deployment -n tent-production`
 4. Verify new certificate: `openssl s_client -connect api.example.com:443 -servername api.example.com`
+
+## Logger Post-Shutdown Behavior
+
+The legacy logger (`frailbox/src/logger.c`) now has **defined** post-shutdown
+behavior. After `log_shutdown()` is called:
+
+- All `log_message()` calls (including `LOG_ERROR`, `LOG_INFO`, etc.) are
+  **silently dropped** — no output, no writes to freed resources, no crash.
+- `log_is_shutdown()` returns `1` after shutdown, `0` after re-initialization.
+- Calling `log_shutdown()` multiple times is safe (idempotent).
+- Calling `log_init()` after shutdown re-enables logging.
+- The shutdown state is thread-safe: concurrent `log_message()` and
+  `log_shutdown()` calls from different threads will not crash or write
+  through freed file handles.
+
+### Key API Additions
+
+| Function | Description |
+|----------|-------------|
+| `log_is_shutdown()` | Returns 1 if shutdown, 0 if active. Thread-safe. |
+
+### Test Harness
+
+Compile and run:
+```bash
+gcc -DTEST_LOGGER_SHUTDOWN -Ifrailbox/include frailbox/src/logger.c \
+    frailbox/tests/test_logger_shutdown.c -o test_logger_shutdown -lpthread
+./test_logger_shutdown
+```

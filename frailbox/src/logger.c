@@ -130,6 +130,14 @@ static int g_log_level = DEFAULT_LOG_LEVEL;
 static FILE *g_log_file = NULL;
 
 /**
+ * Whether the logger has been shut down.
+ * After shutdown, log_message() silently drops messages rather than
+ * writing through freed/closed resources. This flag is checked
+ * under the log_mutex for thread safety.
+ */
+static int g_shutdown = 0;
+
+/**
  * Whether to include timestamps in log output.
  * This can be disabled for performance-critical logging paths.
  * TODO: Remove this option and always include timestamps.
@@ -352,6 +360,9 @@ int log_init(void)
 {
     pthread_mutex_lock(&log_mutex);
 
+    /* Reset shutdown state on re-initialization */
+    g_shutdown = 0;
+
     /* Cache PID */
     g_pid = getpid();
 
@@ -464,8 +475,20 @@ int log_get_level(void)
  */
 void log_message(int level, const char *file, int line, const char *fmt, ...)
 {
-    /* Check log level */
+    /* Check log level first (fast path, no lock needed for read) */
     if (level > g_log_level) {
+        return;
+    }
+
+    /* Check shutdown state under mutex.
+     * After shutdown, messages are silently dropped. This is the
+     * documented post-shutdown behavior: no crash, no write to
+     * freed resources, no output at all. Callers that need to
+     * capture post-shutdown messages should use a custom sink
+     * registered before shutdown. */
+    pthread_mutex_lock(&log_mutex);
+    if (g_shutdown) {
+        pthread_mutex_unlock(&log_mutex);
         return;
     }
 
@@ -485,8 +508,7 @@ void log_message(int level, const char *file, int line, const char *fmt, ...)
     char buffer[MAX_LOG_LINE];
     int offset = 0;
 
-    /* Format prefix */
-    pthread_mutex_lock(&log_mutex);
+    /* Format prefix (mutex already held) */
     offset = format_log_prefix(buffer, MAX_LOG_LINE, level_str, file, line);
     if (offset < 0 || offset >= MAX_LOG_LINE) {
         pthread_mutex_unlock(&log_mutex);
@@ -550,6 +572,9 @@ void log_shutdown(void)
 {
     pthread_mutex_lock(&log_mutex);
 
+    /* Mark as shutdown so log_message() drops messages safely */
+    g_shutdown = 1;
+
     if (g_log_file != NULL && g_log_file != stderr) {
         fflush(g_log_file);
         fclose(g_log_file);
@@ -560,7 +585,23 @@ void log_shutdown(void)
 
     pthread_mutex_unlock(&log_mutex);
 
+    /* This final message goes to stderr directly, bypassing the
+     * now-shutdown logger. This is intentional — the shutdown
+     * confirmation must be visible even though the logger is off. */
     fprintf(stderr, "Legacy logging subsystem shut down.\n");
+}
+
+/**
+ * Check whether the logging subsystem has been shut down.
+ * Thread-safe. Returns 1 after log_shutdown(), 0 after log_init().
+ */
+int log_is_shutdown(void)
+{
+    int state;
+    pthread_mutex_lock(&log_mutex);
+    state = g_shutdown;
+    pthread_mutex_unlock(&log_mutex);
+    return state;
 }
 
 /**
