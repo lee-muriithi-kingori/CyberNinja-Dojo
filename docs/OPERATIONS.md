@@ -310,3 +310,19 @@ Audit logs are retained for 365 days and include:
 2. Update Kubernetes secret: `kubectl create secret tls tot-tls --cert=new.crt --key=new.key -n tent-production --dry-run=client -o yaml | kubectl apply -f -`
 3. Restart services: `kubectl rollout restart deployment -n tent-production`
 4. Verify new certificate: `openssl s_client -connect api.example.com:443 -servername api.example.com`
+
+## Analytics Collector Idempotent Start
+
+The `market/analytics/collector.go` `Collector.Start()` method is now idempotent.
+Calling `Start()` more than once returns `ErrAlreadyStarted` without spawning
+duplicate flush goroutines. After `Stop()` or context cancellation, the collector
+can be started again.
+
+### Key Changes
+
+- `Start(ctx)` now returns `error` — `nil` on first call, `ErrAlreadyStarted` on
+  subsequent calls while the flush loop is still running.
+- `IsStarted()` reports whether the flush loop is currently active.
+- After `Stop()` or context cancellation, `IsStarted()` returns `false` and
+  `Start()` may be called again.
+- The `started` flag is managed with `sync/atomic.Bool` for concurrent safety.
