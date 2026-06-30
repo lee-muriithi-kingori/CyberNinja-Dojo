@@ -311,6 +311,69 @@ Audit logs are retained for 365 days and include:
 3. Restart services: `kubectl rollout restart deployment -n tent-production`
 4. Verify new certificate: `openssl s_client -connect api.example.com:443 -servername api.example.com`
 
+## Build System
+
+### CI Gating with `--check-stale`
+
+The build system supports a `--check-stale` flag designed for CI pipelines
+to prevent pull requests from including outdated diagnostic artifacts.
+
+```bash
+# Fail if any stale diagnostic artifacts exist
+python3 build.py --check-stale
+
+# Allow up to 1KB of stale artifacts (useful during transitions)
+python3 build.py --check-stale --max-stale-bytes 1024
+```
+
+### How It Works
+
+Diagnostic artifacts in `diagnostic/` are named with the commit ID that
+generated them (`build-{commit}.logd` and `build-{commit}.json`). The
+`--check-stale` flag compares each artifact's commit ID against the current
+HEAD and reports an error if any artifact belongs to a different commit.
+
+This is purely a **read-only check** -- it does not delete or modify any
+files. To clean stale artifacts, run:
+
+```bash
+python3 build.py --clean
+```
+
+### CI Pipeline Example
+
+```yaml
+# .github/workflows/ci.yml
+steps:
+  - uses: actions/checkout@v4
+  - name: Check for stale diagnostics
+    run: python3 build.py --check-stale
+  - name: Build all modules
+    run: python3 build.py
+```
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--check-stale` | N/A | Enable stale artifact checking |
+| `--max-stale-bytes` | 0 | Maximum stale bytes allowed (0 = any stale is error) |
+
+### Self-Tests
+
+The build script includes self-tests for the stale-checking logic:
+
+```bash
+python3 build.py --self-test
+```
+
+Tests cover:
+- Empty diagnostic directory is clean
+- Current commit artifacts are not stale
+- Different commit artifacts are detected as stale
+- `max_stale_bytes` threshold allows small amounts of stale data
+- Chunked artifacts (`-partNNN.logd`) are properly detected
+
 ## Telemetry Service
 
 ### Batch Flush Threshold Behavior
